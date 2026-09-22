@@ -1,0 +1,9 @@
+.espressif/
+.direnv/
+eim_config.toml
+eim.log
+result
+result-*
+build/
+sdkconfig
+sdkconfig.old
