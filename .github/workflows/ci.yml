@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake:
+    name: flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nix flake check
+        run: nix flake check --all-systems
+
+      - name: build the shell
+        run: nix build .#packages.x86_64-linux.default -L
+
+  example:
+    name: example project
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      IDF_TARGETS: esp32
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # buildFHSEnv runs the shell under bubblewrap, and the runner image
+      # confines unprivileged user namespaces with AppArmor.
+      - name: allow unprivileged user namespaces
+        run: |
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: build hello_world for esp32
+        run: |
+          nix run . -- -c '
+            set -e
+            [ -n "${IDF_PATH:-}" ] || { echo "ESP-IDF was not activated" >&2; exit 1; }
+            cp -r "$IDF_PATH/examples/get-started/hello_world" "$RUNNER_TEMP/hello_world"
+            cd "$RUNNER_TEMP/hello_world"
+            idf.py set-target esp32
+            idf.py build
+            test -f build/hello_world.bin
+          '
