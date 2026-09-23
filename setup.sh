@@ -22,7 +22,9 @@ idf-install() {
   echo "[esp-idf] installing $version, this downloads several GB" >&2
   # The FHS env already provides the prerequisites, and eim cannot detect a
   # package manager inside it.
-  eim install \
+  # eim insists on pip being importable by the sandbox python, which carries
+  # none, so lend it one for the install alone.
+  PYTHONPATH="$IDF_PIP_PATH" eim install \
     --non-interactive true \
     --skip-prerequisites-check true \
     --idf-versions "$version" \

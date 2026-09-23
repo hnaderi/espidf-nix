@@ -102,6 +102,7 @@
               export PATH="${eim}:$PATH"
               export ESP_IDF_SANDBOX=1
               export IDF_PYTHON_VERSION=${python.pythonVersion}
+              export IDF_PIP_PATH="${pkgs.python313Packages.pip}/${python.sitePackages}"
               export IDF_VERSION="''${IDF_VERSION:-${idfVersion}}"
               export IDF_TARGETS="''${IDF_TARGETS:-${idfTargets}}"
             '';
