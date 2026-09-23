@@ -26,7 +26,8 @@ idf-install() {
     --non-interactive true \
     --skip-prerequisites-check true \
     --idf-versions "$version" \
-    --target "${IDF_TARGETS:-all}" >&2 || return 1
+    --target "${IDF_TARGETS:-all}" \
+    --config-file-save-path "$HOME/.espressif/eim_config.toml" >&2 || return 1
 
   [ -f "$activate" ]
 }
