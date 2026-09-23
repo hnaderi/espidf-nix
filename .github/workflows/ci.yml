@@ -42,7 +42,7 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      # buildFHSEnv runs the shell under bubblewrap, and the runner image
+      # buildFHSEnv runs its sandbox under bubblewrap, and the runner image
       # confines unprivileged user namespaces with AppArmor.
       - name: allow unprivileged user namespaces
         run: |
@@ -50,14 +50,16 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
-      - name: build hello_world for esp32
+      # The dev shell is an ordinary mkShell, so this is also the path direnv
+      # and editors take.
+      - name: build a project for esp32
         run: |
-          nix run . -- -c '
+          nix develop -c bash -c '
             set -e
-            [ -n "${IDF_PATH:-}" ] || { echo "ESP-IDF was not activated" >&2; exit 1; }
-            cp -r "$IDF_PATH/examples/get-started/hello_world" "$RUNNER_TEMP/hello_world"
-            cd "$RUNNER_TEMP/hello_world"
+            command -v idf.py
+            idf.py create-project -p "$RUNNER_TEMP/hello" hello
+            cd "$RUNNER_TEMP/hello"
             idf.py set-target esp32
             idf.py build
-            test -f build/hello_world.bin
+            test -f build/hello.bin
           '

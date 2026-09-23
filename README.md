@@ -1,94 +1,131 @@
 # espidf-nix
 
-A Nix flake that gives you an ESP-IDF development shell.
+A Nix package that gives you `idf.py` and the rest of ESP-IDF on PATH, in an
+ordinary shell.
 
-It does not repackage Espressif's toolchains as Nix derivations. Those are
-prebuilt, dynamically linked binaries that change with every IDF release, and
-keeping derivations for them in sync is the maintenance burden that makes such
-flakes rot. Instead this flake builds an FHS sandbox with `buildFHSEnv` and
-runs [eim](https://github.com/espressif/idf-im-ui), Espressif's own installer,
-inside it. Nix provides the environment, eim provides the toolchains.
+It uses the official prebuilt binaries from the espressif using 
+[eim](https://github.com/espressif/idf-im-ui), Espressif's own installer, 
+in an FHS sandbox and providing wrapper scripts instead. 
+So you can run whatever official versions available through eim on nixos.
 
 ## Requirements
 
 - Linux on x86_64 or aarch64. `buildFHSEnv` is Linux only.
 - Nix with `nix-command` and `flakes` enabled.
 
-## Usage
+## Use it in your own flake
+
+Through the overlay, in a shell of your own:
+
+```nix
+{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.espidf.url = "github:hnaderi/espidf-nix";
+
+  outputs =
+    { nixpkgs, espidf, ... }:
+    let
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        overlays = [ espidf.overlays.default ];
+      };
+    in
+    {
+      devShells.x86_64-linux.default = pkgs.mkShell {
+        packages = [
+          pkgs.esp-idf
+          pkgs.clang-tools
+          pkgs.just
+        ];
+      };
+    };
+}
+```
+
+`espidf.packages.${system}.default` is the same package if you would rather not
+use the overlay. To pick a version or add commands, build it with `lib.mkEspIdf`:
+
+```nix
+packages = [
+  (espidf.lib.mkEspIdf {
+    inherit pkgs;
+    idfVersion = "v6.0.3";
+    extraTools = [ "xtensa-esp32-elf-gdb" ];
+    extraPkgs = pkgs: [ pkgs.qemu ];
+  })
+];
+```
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `pkgs` | none | Nixpkgs to build against, or pass `system` instead |
+| `idfVersion` | `v6.1` | ESP-IDF tag to install |
+| `idfTargets` | `all` | Comma separated chip targets |
+| `extraTools` | `[ ]` | More commands to put on PATH |
+| `extraPkgs` | `pkgs: [ ]` | More packages inside the sandbox |
+
+There is also `espidf.lib.mkDevShell`, taking the same arguments, for a ready
+made `mkShell` around the package, and `devShells.${system}.default` for the
+one it builds with the defaults.
+
+## What the package puts on PATH
+
+`idf.py`, `esptool.py`, `espefuse.py`, `espsecure.py`, `esp-coredump`,
+`openocd`, `eim`, and:
+
+- `idf-install [version]` installs a version without switching to it.
+- `esp-idf-env <command> [args]` runs any command from the ESP-IDF
+  environment, wrapper or not: `esp-idf-env riscv32-esp-elf-gdb`,
+  `esp-idf-env printenv IDF_PATH`.
+- `esp-idf-shell` opens an interactive shell inside the sandbox, where the
+  whole environment is on PATH at once. `nix run github:hnaderi/espidf-nix --
+  -c 'idf.py build'` is the same shell.
+
+Anything you reach for often is better added through `extraTools`, which gives
+it a wrapper of its own, so your editor or `Makefile` can call it directly.
+
+## Everyday use
 
 ```bash
 cd your-esp-project
-nix develop /path/to/esp-idf-flake
-```
-
-The first run installs ESP-IDF and its toolchains into `~/.espressif`, which
-takes a while and a few GB. Later runs source the activation script and start
-immediately.
-
-```bash
 idf.py set-target esp32s3
 idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-The dev shell replaces itself with a `bash` running inside the FHS sandbox, so
-`nix develop --command ...` and direnv's `use flake` do not work with it. For a
-one-off command use `nix run`, which passes its arguments on to that bash:
-
-```bash
-nix run /path/to/esp-idf-flake -- -c 'idf.py build'
-```
-
-## Use from another flake
-
-Add it as an input and take the shell as it comes:
-
-```nix
-{
-  inputs.espidf.url = "github:hnaderi/espidf-nix";
-
-  outputs = { self, espidf }: {
-    devShells.x86_64-linux.default = espidf.devShells.x86_64-linux.default;
-  };
-}
-```
-
-Or build one with your own version and tools through `lib.mkDevShell`:
-
-```nix
-devShells.x86_64-linux.default = espidf.lib.mkDevShell {
-  system = "x86_64-linux";
-  idfVersion = "v6.0.3";
-  extraPkgs = pkgs: [ pkgs.qemu pkgs.clang-tools ];
-};
-```
-
-`extraPkgs` is how you add tools. The shell is an FHS sandbox rather than an
-ordinary `mkShell`, so you cannot merge it with a `mkShell` of your own, and
-anything not in the sandbox is invisible to the build.
+The first command installs ESP-IDF and its toolchains into `~/.espressif`,
+which takes a while and a few GB. Run `idf-install` to get it over with.
 
 ## Configuration
 
-Set these before entering the shell:
-
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `IDF_VERSION` | `v6.1` | ESP-IDF tag to install |
-| `IDF_TARGETS` | `all` | Comma separated chip targets |
+| `IDF_VERSION` | `v6.1` | ESP-IDF tag to use |
+| `IDF_TARGETS` | `all` | Comma separated chip targets to install |
+
+Both default to whatever the package was built with, and both can be set per
+command:
 
 ```bash
-IDF_VERSION=v5.5.5 IDF_TARGETS=esp32,esp32c6 nix develop
-```
-
-Inside the shell, `idf-use` installs a version if needed and switches to it:
-
-```bash
-idf-use v6.0.3
+IDF_VERSION=v6.0.3 idf.py build
 ```
 
 Installs are keyed by version, so several can coexist and projects can pin
 different ones. Tags come from
 [esp-idf releases](https://github.com/espressif/esp-idf/releases); eim covers
-v5.0 and newer.
+v5.0 and newer. Inside `esp-idf-shell`, `idf-use v6.0.3` switches the running
+shell over.
 
-`IDF_TARGETS` targets passed to the eim install command.
+## How it works
+
+`eim` installs each ESP-IDF version under `~/.espressif` and writes an
+activation script per version. A wrapper such as `idf.py` runs
+`esp-idf-env idf.py`, which enters the bwrap sandbox, exports that version's
+environment and execs the real `idf.py`. That environment is cached under
+`~/.cache/espidf-nix` rather than sourced every time, so a command run stays fast.
+
+The sandbox keeps the environment it was called with and binds `/nix`, so the
+packages of your surrounding shell stay visible and usable inside it. The
+reverse does not hold: the binaries under `~/.espressif` are the ones that need
+the FHS layout, so they only run through a wrapper, `esp-idf-env`, or
+`esp-idf-shell`.
