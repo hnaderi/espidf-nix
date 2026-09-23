@@ -52,6 +52,13 @@ _idf_env_snapshot() {
   printf '%s\n' "$cache"
 }
 
+# idf_tools.py lists the directory before it fills it.
+_idf_make_python_env() {
+  echo "[esp-idf] creating a python $IDF_PYTHON_VERSION env for $1, this takes a minute" >&2
+  mkdir -p "$IDF_PYTHON_ENV_PATH"
+  /usr/bin/python3 "$IDF_PATH/tools/idf_tools.py" install-python-env >&2
+}
+
 idf-use() {
   local version="${1:-$IDF_VERSION}"
   local cache key value idf_path=
@@ -62,17 +69,29 @@ idf-use() {
   while IFS='=' read -r key value; do
     case "$key" in
       PATH) idf_path="$value" ;;
-      # SYSTEM_PATH is the PATH eim saw at install time, ours wins over it.
-      SYSTEM_PATH | '') ;;
+      # SYSTEM_PATH is the PATH eim saw at install time and IDF_VERSION its
+      # numeric form, ours win over both.
+      SYSTEM_PATH | IDF_VERSION | '') ;;
       *) export "$key=$value" ;;
     esac
   done <"$cache"
 
   [ -f "$IDF_PATH/tools/idf.py" ] || return 1
 
+  # A virtualenv keeps its packages in lib/python<version> and only the python
+  # that created it looks there. eim built one with the python of whoever
+  # installed this version, so when ours differs keep a second one beside it,
+  # instead of two projects rebuilding a single venv in turn.
+  if [ ! -d "$IDF_PYTHON_ENV_PATH/lib/python$IDF_PYTHON_VERSION" ]; then
+    export IDF_PYTHON_ENV_PATH="$IDF_PYTHON_ENV_PATH-py$IDF_PYTHON_VERSION"
+    [ -d "$IDF_PYTHON_ENV_PATH/lib/python$IDF_PYTHON_VERSION" ] ||
+      _idf_make_python_env "$version" ||
+      return 1
+  fi
+
   # The activation script exposes idf.py as a shell function, so put the real
   # script on PATH instead.
-  export PATH="$IDF_PATH/tools:$idf_path:$PATH"
+  export PATH="$IDF_PATH/tools:$IDF_PYTHON_ENV_PATH/bin:$idf_path:$PATH"
   export VIRTUAL_ENV="$IDF_PYTHON_ENV_PATH"
   export IDF_VERSION="$version"
   unset PYTHONHOME

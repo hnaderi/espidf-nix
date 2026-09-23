@@ -49,6 +49,12 @@
         let
           dist = eimDist.${system} or (throw "espidf-nix: no eim release for ${system}");
 
+          # eim creates the ESP-IDF virtualenv with this python. Pin the version,
+          # because the virtualenv is bound to it, and keep the interpreter
+          # plain: a withPackages env resolves to a wrapper on some nixpkgs
+          # revisions, and a wrapper loses the virtualenv it is called through.
+          python = pkgs.python313;
+
           eim = pkgs.fetchzip {
             url = "https://github.com/espressif/idf-im-ui/releases/download/v${eimVersion}/eim-cli-${dist.arch}.zip";
             hash = dist.hash;
@@ -88,17 +94,14 @@
                 gperf
                 ccache
                 dfu-util
-
-                (python3.withPackages (ps: [
-                  ps.pip
-                  ps.virtualenv
-                ]))
               ])
+              ++ [ python ]
               ++ extraPkgs pkgs;
 
             profile = ''
               export PATH="${eim}:$PATH"
               export ESP_IDF_SANDBOX=1
+              export IDF_PYTHON_VERSION=${python.pythonVersion}
               export IDF_VERSION="''${IDF_VERSION:-${idfVersion}}"
               export IDF_TARGETS="''${IDF_TARGETS:-${idfTargets}}"
             '';
